@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lord of the Bins: photo renamer</title>
+<style>
+*{box-sizing:border-box}
+body{font:15px/1.5 system-ui,sans-serif;background:#0b0e0a;color:#eef3ea;margin:0;padding:0 20px 60px}
+h1{color:#81d742;margin:20px 0 4px;font-size:26px}
+p.intro{color:#9aa596;max-width:760px;margin:0 0 10px}
+.bar{position:sticky;top:0;z-index:5;background:#0b0e0a;padding:14px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #2a3326}
+.btn{background:#81d742;color:#061003;border:0;padding:11px 20px;border-radius:5px;font-weight:700;cursor:pointer;font-size:15px}
+.btn.ghost{background:transparent;color:#81d742;box-shadow:inset 0 0 0 1.5px #81d742}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+#status{color:#9aa596;font-size:14px}
+#status b{color:#eef3ea}
+#missing{color:#e0b400;font-size:13px;width:100%}
+.legend{display:flex;gap:16px;font-size:13px;color:#9aa596;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:18px}
+.c{background:#141a12;border:3px solid #81d742;border-radius:9px;padding:10px;transition:border-color .2s}
+.c.check{border-color:#e0b400}
+.c.none{border-color:#444}
+.c.dup{border-color:#ff5a4d}
+.c img{width:100%;height:280px;object-fit:contain;background:#000;border-radius:5px;cursor:zoom-in;display:block}
+.c small{display:block;color:#7d8679;font-size:11px;word-break:break-all;margin:7px 0}
+.c .tag{font-size:12px;font-weight:700;margin-bottom:6px}
+.c.check .tag{color:#e0b400}.c .tag{color:#81d742}.c.none .tag{color:#888}.c.dup .tag{color:#ff5a4d}
+select{width:100%;padding:9px;background:#050605;color:#eef3ea;border:1px solid #3a4535;border-radius:5px;font-size:14px}
+.drop{margin-top:18px;border:2px dashed #3a4535;border-radius:10px;padding:40px;text-align:center;color:#9aa596}
+.drop.over{border-color:#81d742;color:#eef3ea}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.94);display:none;place-items:center;z-index:9;cursor:zoom-out;padding:20px}
+.lb.on{display:grid}
+.lb img{max-width:100%;max-height:92vh}
+</style>
+</head>
+<body>
+<h1>Lord of the Bins: photo renamer</h1>
+<p class="intro">1. Choose all the Facebook photos. 2. Check the <b style="color:#e0b400">yellow</b> cards and fix any wrong names (click a photo to enlarge). 3. Download the rename file, save it next to the photos and double-click it.</p>
+
+<div class="bar">
+  <label class="btn" for="file">Choose photos</label>
+  <input type="file" id="file" accept="image/*" multiple hidden>
+  <button class="btn" id="go" disabled>Download rename file</button>
+  <button class="btn ghost" id="sort">Show yellow first</button>
+  <span id="status">No photos loaded yet.</span>
+  <div class="legend"><span style="--c:#81d742">Confident</span><span style="--c:#e0b400">Please check</span><span style="--c:#ff5a4d">Name used twice</span><span style="--c:#444">Not used</span></div>
+  <div id="missing"></div>
+</div>
+
+<div class="drop" id="drop">Or drag and drop all the photos here</div>
+<div class="grid" id="grid"></div>
+<div class="lb" id="lb"><img alt=""></div>
+
+<script>
+/* every name the website uses (primary name per photo) */
+const OPTIONS = [
+  ['', '— not used —'],
+  ['services-hero.jpg', 'Two branded vans'],
+  ['team.jpg', 'Team + volunteers in front of van sign'],
+  ['contact-hero.jpg', 'Three young team members at event'],
+  ['building.jpg', 'Two crew clearing plasterboard indoors'],
+  ['enterprise.jpg', 'School playground, crew loading tipper'],
+  ['enterprise-2.jpg', 'School playground, two loaded trucks'],
+  ['areas-hero.jpg', 'Beach litter pick'],
+  ['community-2.jpg', 'Litter pick on grass (red jacket + girl)'],
+  ['community-3.jpg', 'Group litter pick on the green'],
+  ['residential.jpg', 'Concrete garage with roller door, full'],
+  ['residential-2.jpg', 'Sofa, mattress and bags by the road'],
+  ['job-4.jpg', 'Cleared drive with green bin "4"'],
+  ['job-5.jpg', 'Empty concrete garage, blue sky'],
+  ['job-6.jpg', 'Cleared block-paved patio'],
+  ['job-7.jpg', 'Carpets and boxes by a hedge'],
+  ['job-8.jpg', 'Cleared garden base with sheds'],
+  ['ba/01-before.jpg', '01 BEFORE: cluttered garage (bike, ladder)'],
+  ['ba/01-after.jpg', '01 AFTER: same garage empty'],
+  ['ba/02-before.jpg', '02 BEFORE: black bags on pavement'],
+  ['ba/02-after.jpg', '02 AFTER: pavement clear (Victorian house)'],
+  ['ba/03-before.jpg', '03 BEFORE: building waste under scaffold'],
+  ['ba/03-after.jpg', '03 AFTER: scaffold area cleared'],
+  ['ba/04-before.jpg', '04 BEFORE: garage timber pile + freezer'],
+  ['ba/04-after.jpg', '04 AFTER: clean garage corner + freezer'],
+  ['ba/05-before.jpg', '05 BEFORE: office debris by window'],
+  ['ba/05-after.jpg', '05 AFTER: office window cleared'],
+  ['ba/06-before.jpg', '06 BEFORE: lit garage full of bags/insulation'],
+  ['ba/06-after.jpg', '06 AFTER: lit garage clean with boiler'],
+  ['ba/07-before.jpg', '07 BEFORE: furniture on gravel drive'],
+  ['ba/07-after.jpg', '07 AFTER: gravel drive clear'],
+  ['ba/08-before.jpg', '08 BEFORE: rubble under scaffold'],
+  ['ba/08-after.jpg', '08 AFTER: scaffold side return cleared'],
+  ['ba/09-before.jpg', '09 BEFORE: old garage + red car'],
+  ['ba/09-after.jpg', '09 AFTER: clean concrete base (caravan)'],
+  ['ba/10-before.jpg', '10 BEFORE: front yard with blue bulk bag'],
+  ['ba/10-after.jpg', '10 AFTER: front patio cleared'],
+  ['ba/11-before.jpg', '11 BEFORE: strip-out debris indoors'],
+  ['ba/11-after.jpg', '11 AFTER: swept, work light'],
+  ['ba/12-before.jpg', '12 BEFORE: corner pile by window + plant'],
+  ['ba/12-after.jpg', '12 AFTER: corner clear + plant pot'],
+  ['ba/13-before.jpg', '13 BEFORE: side passage, mower etc'],
+  ['ba/13-after.jpg', '13 AFTER: side passage clear'],
+  ['ba/14-before.jpg', '14 BEFORE: huge waste pile with ladder'],
+  ['ba/14-after.jpg', '14 AFTER: cleared ground, navy door']
+];
+
+/* extra copies the website needs (made automatically) */
+const COPIES = {
+  'services-hero.jpg': ['og.jpg', 'job-1.jpg'],
+  'team.jpg': ['about-hero.jpg'],
+  'building.jpg': ['job-2.jpg'],
+  'areas-hero.jpg': ['community-1.jpg'],
+  'enterprise.jpg': ['job-3.jpg'],
+  'contact-hero.jpg': ['community-4.jpg'],
+  'ba/05-before.jpg': ['business.jpg'],
+  'ba/11-after.jpg': ['business-2.jpg'],
+  'ba/14-before.jpg': ['building-2.jpg']
+};
+
+/* best guesses by the number at the start of each filename. true = confident, false = please check */
+const GUESS = {
+  '476021017': ['services-hero.jpg', true],
+  '481078384': ['team.jpg', true],
+  '475408099': ['contact-hero.jpg', true],
+  '481191890': ['areas-hero.jpg', true],
+  '481462896': ['community-2.jpg', true],
+  '481291894': ['community-3.jpg', true],
+  '486975228': ['enterprise.jpg', true],
+  '487507248': ['enterprise-2.jpg', true],
+  '491907370': ['job-4.jpg', true],
+  '492506307': ['job-5.jpg', true],
+  '583310880': ['job-6.jpg', true],
+  '634069925': ['job-8.jpg', true],
+  '629591893': ['residential.jpg', true],
+  '489403113': ['ba/01-before.jpg', true],
+  '499927611': ['ba/01-after.jpg', true],
+  '589211130': ['ba/02-after.jpg', true],
+  '597711416': ['ba/07-before.jpg', true],
+  '597795104': ['ba/07-after.jpg', true],
+  '599945857': ['ba/08-before.jpg', true],
+  '599925764': ['ba/08-after.jpg', true],
+  '617422187': ['ba/09-before.jpg', true],
+  '615543782': ['ba/09-after.jpg', true],
+  '600318237': ['ba/14-before.jpg', true],
+  '599957087': ['ba/14-after.jpg', true],
+  '481079895': ['building.jpg', false],
+  '589568174': ['ba/02-before.jpg', false],
+  '589498788': ['ba/03-before.jpg', false],
+  '588660461': ['ba/03-after.jpg', false],
+  '583317580': ['ba/04-before.jpg', false],
+  '590059014': ['ba/04-after.jpg', false],
+  '597783724': ['ba/05-before.jpg', false],
+  '597666403': ['ba/05-after.jpg', false],
+  '597704871': ['ba/06-before.jpg', false],
+  '599951454': ['ba/06-after.jpg', false],
+  '616046565': ['ba/10-before.jpg', false],
+  '615340018': ['ba/10-after.jpg', false],
+  '615477955': ['ba/11-before.jpg', false],
+  '616111334': ['ba/11-after.jpg', false],
+  '616041711': ['ba/12-before.jpg', false],
+  '615211135': ['ba/12-after.jpg', false],
+  '615473758': ['ba/13-before.jpg', false],
+  '615366333': ['ba/13-after.jpg', false],
+  '614591079': ['residential-2.jpg', false],
+  '617010897': ['job-7.jpg', false]
+};
+
+const $ = s => document.querySelector(s);
+const grid = $('#grid'), go = $('#go'), status = $('#status'), missing = $('#missing');
+let cards = [];
+
+function load(files) {
+  [...files].filter(f => f.type.startsWith('image/')).forEach(f => {
+    if (cards.some(c => c.file.name === f.name)) return;
+    const key = f.name.split('_')[0];
+    const g = GUESS[key];
+    const el = document.createElement('div');
+    el.className = 'c';
+    el.innerHTML = `<div class="tag"></div><img alt=""><small>${f.name}</small><select>${OPTIONS.map(([v, t]) => `<option value="${v}">${v ? v + ' · ' + t : t}</option>`).join('')}</select>`;
+    $('img', el);
+    el.querySelector('img').src = URL.createObjectURL(f);
+    const sel = el.querySelector('select');
+    if (g) sel.value = g[0];
+    const card = { file: f, el, sel, sure: !!(g && g[1]), touched: false };
+    sel.addEventListener('change', () => { card.touched = true; card.sure = true; refresh(); });
+    el.querySelector('img').addEventListener('click', () => { $('#lb img').src = el.querySelector('img').src; $('#lb').classList.add('on'); });
+    cards.push(card);
+    grid.appendChild(el);
+  });
+  $('#drop').style.display = cards.length ? 'none' : '';
+  refresh();
+}
+
+function refresh() {
+  const used = {};
+  cards.forEach(c => { if (c.sel.value) used[c.sel.value] = (used[c.sel.value] || 0) + 1; });
+  let dups = 0;
+  cards.forEach(c => {
+    const v = c.sel.value, dup = v && used[v] > 1;
+    if (dup) dups++;
+    c.el.className = 'c' + (!v ? ' none' : dup ? ' dup' : c.sure ? '' : ' check');
+    c.el.querySelector('.tag').textContent = !v ? 'Not used' : dup ? 'Name used twice: fix one' : c.sure ? (c.touched ? 'Set by you' : 'Confident') : 'Please check this one';
+  });
+  const assigned = cards.filter(c => c.sel.value).length;
+  const checks = cards.filter(c => c.sel.value && !c.sure).length;
+  const miss = OPTIONS.map(o => o[0]).filter(v => v && !used[v]);
+  status.innerHTML = `<b>${cards.length}</b> photos loaded · <b>${assigned}</b> named · <b>${checks}</b> to check · <b>${dups}</b> clashes`;
+  missing.textContent = miss.length ? 'No photo chosen yet for: ' + miss.join(', ') : '';
+  go.disabled = !assigned || dups > 0;
+}
+
+go.addEventListener('click', () => {
+  const L = ['@echo off', 'cd /d "%~dp0"', 'if not exist images mkdir images', 'if not exist images\\ba mkdir images\\ba'];
+  cards.forEach(c => {
+    const v = c.sel.value; if (!v) return;
+    [v, ...(COPIES[v] || [])].forEach(n => L.push(`copy /Y "${c.file.name}" "images\\${n.replace('/', '\\')}" >nul`));
+  });
+  L.push('echo.', 'echo Done! Your renamed photos are in the "images" folder.', 'pause');
+  const blob = new Blob([L.join('\r\n')], { type: 'application/octet-stream' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'rename-photos.bat'; a.click();
+});
+
+$('#sort').addEventListener('click', () => {
+  const rank = c => c.el.classList.contains('dup') ? 0 : c.el.classList.contains('check') ? 1 : c.el.classList.contains('none') ? 3 : 2;
+  [...cards].sort((a, b) => rank(a) - rank(b)).forEach(c => grid.appendChild(c.el));
+});
+
+$('#file').addEventListener('change', e => load(e.target.files));
+const drop = document.body;
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); $('#drop').classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); $('#drop').classList.remove('over'); }));
+drop.addEventListener('drop', e => load(e.dataTransfer.files));
+$('#lb').addEventListener('click', () => $('#lb').classList.remove('on'));
+addEventListener('keydown', e => e.key === 'Escape' && $('#lb').classList.remove('on'));
+</script>
+</body>
+</html>
